@@ -26,7 +26,7 @@ st.set_page_config(
 # LOAD TRAINED MODEL
 # --------------------------------------------------
 
-model_package = joblib.load("/content/crispr_model.joblib")
+model_package = joblib.load("crispr_model.joblib")
 
 final_ensemble = model_package["model"]
 model_features = model_package["model_features"]
