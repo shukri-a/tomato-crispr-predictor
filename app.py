@@ -1,484 +1,132 @@
+"""Run with: python -m streamlit run app.py"""
 
-# --------------------------------------------------
-# IMPORT LIBRARIES
-# --------------------------------------------------
-
+import logging
+from time import perf_counter
 import streamlit as st
-import pandas as pd
-import numpy as np
-import joblib
-import shap
-from itertools import product
 
-
-# --------------------------------------------------
-# PAGE SETUP
-# --------------------------------------------------
-
-st.set_page_config(
-    page_title="Tomato CRISPR Editing Efficiency Predictor",
-    page_icon="🧬",
-    layout="centered"
+from predictor import (
+    EXPRESSIONS, REGIONS, build_features, example_inputs, load_model,
+    normalise_sequence, predict, reference,
 )
 
-
-# --------------------------------------------------
-# LOAD TRAINED MODEL
-# --------------------------------------------------
-
-model_package = joblib.load("crispr_model.joblib")
-
-final_ensemble = model_package["model"]
-model_features = model_package["model_features"]
-
-# Load SHAP explainability information
-shap_background = model_package["shap_background"]
-shap_feature_names = model_package["shap_feature_names"]
+st.set_page_config(page_title="CRISPR Editing Efficiency Predictor", layout="centered")
+st.title("CRISPR Editing Efficiency Predictor")
+st.caption("Food Systems Collective — Research Prototype")
+st.write("Enter a tomato guide and its biological context to estimate on-target editing efficiency.")
 
 
-# --------------------------------------------------
-# SHAP EXPLAINABILITY SETUP
-# --------------------------------------------------
-
-def numeric_ensemble_predict(data):
-
-    predictions = []
-
-    for fitted_pipeline in final_ensemble.estimators_:
-
-        fitted_model = fitted_pipeline.named_steps["model"]
-
-        predictions.append(
-            fitted_model.predict(data)
-        )
-
-    return np.mean(predictions, axis=0)
+@st.cache_resource(show_spinner="Loading the trained model…")
+def cached_model():
+    return load_model()
 
 
-shap_explainer = shap.Explainer(
-    numeric_ensemble_predict,
-    shap_background,
-    algorithm="permutation",
-    feature_names=shap_feature_names
+@st.cache_resource(show_spinner=False)
+def cached_explainer():
+    # Optional explanation dependencies never block ordinary predictions.
+    from explanations import EnsembleExplainer
+    return EnsembleExplainer(cached_model())
+
+
+def clear_result():
+    for key in ("prediction", "prediction_inputs", "shap_result", "shap_error"):
+        st.session_state.pop(key, None)
+
+
+def use_example():
+    clear_result()
+    for key, value in example_inputs(st.session_state.example).items():
+        st.session_state[key] = value
+
+
+st.selectbox(
+    "Reference example", range(len(reference()["guide_sequences"])),
+    format_func=lambda i: f"Example {i + 1} — {reference()['guide_sequences'][i]}",
+    key="example",
 )
+st.button("Try an Example", on_click=use_example)
+st.caption("Loads a real reference guide and its recorded context. Click Predict to run it.")
 
-
-# --------------------------------------------------
-# GUIDE RNA FUNCTIONS
-# --------------------------------------------------
-
-def validate_guide_sequence(sequence):
-
-    sequence = sequence.strip().upper()
-
-    if len(sequence) != 20:
-        return False, "Guide RNA sequence must contain exactly 20 bases."
-
-    if not all(base in "ATGC" for base in sequence):
-        return False, "Guide RNA sequence can only contain A, T, G or C."
-
-    return True, "Valid guide RNA sequence."
-
-
-def calculate_gc_content(sequence):
-
-    gc_count = sequence.count("G") + sequence.count("C")
-
-    return gc_count / len(sequence)
-
-
-def calculate_max_homopolymer_run(sequence):
-
-    max_run = 1
-    current_run = 1
-
-    for i in range(1, len(sequence)):
-
-        if sequence[i] == sequence[i - 1]:
-
-            current_run += 1
-            max_run = max(max_run, current_run)
-
-        else:
-
-            current_run = 1
-
-    return max_run
-
-
-def get_first_base(sequence):
-
-    return sequence[0]
-
-
-def get_last_base(sequence):
-
-    return sequence[-1]
-
-
-def calculate_trinucleotide_counts(sequence):
-
-    # Create all 64 possible trinucleotides
-    trinucleotides = [
-        "".join(x)
-        for x in product("ACGT", repeat=3)
-    ]
-
-    counts = {
-        f"trinuc_{tri}": 0
-        for tri in trinucleotides
-    }
-
-    # Count each trinucleotide in the guide sequence
-    for i in range(len(sequence) - 2):
-
-        tri = sequence[i:i + 3]
-
-        counts[f"trinuc_{tri}"] += 1
-
-    return counts
-
-
-# --------------------------------------------------
-# PREPARE SCIENTIST INPUT FOR MODEL
-# --------------------------------------------------
-
-def prepare_new_guide(
-    guide_sequence,
-    target_region,
-    within_atac_peak,
-    leaf_expression,
-    t0_expression
-):
-
-    guide_sequence = guide_sequence.strip().upper()
-
-    new_guide = {
-
-        "feature": target_region,
-
-        "leaf_exp": leaf_expression,
-
-        "t0_exp": t0_expression,
-
-        "within_atac_peak": within_atac_peak,
-
-        "gc_content": calculate_gc_content(
-            guide_sequence
-        ),
-
-        "max_homopolymer_run":
-            calculate_max_homopolymer_run(
-                guide_sequence
-            ),
-
-        "first_base": get_first_base(
-            guide_sequence
-        ),
-
-        "last_base": get_last_base(
-            guide_sequence
-        )
-    }
-
-    # Automatically create the 64 trinucleotide features
-    new_guide.update(
-        calculate_trinucleotide_counts(
-            guide_sequence
-        )
-    )
-
-    new_guide_df = pd.DataFrame(
-        [new_guide]
-    )
-
-    # Keep exactly the features expected by the model
-    new_guide_df = new_guide_df[
-        model_features
-    ]
-
-    return new_guide_df
-
-
-# --------------------------------------------------
-# USER INTERFACE
-# --------------------------------------------------
-
-st.title(
-    "🧬 Tomato CRISPR Editing Efficiency Predictor"
+sequence = st.text_input(
+    "Guide RNA sequence", key="sequence",
+    placeholder="20 bases using A, C, G and T",
+    help="DNA format. Lowercase and surrounding whitespace are accepted. Enter the 20-base guide only.",
 )
-
-st.write(
-    "A machine learning tool for predicting CRISPR-Cas9 "
-    "editing efficiency in tomato guide RNAs."
+region = st.selectbox("Genomic region", REGIONS, index=None, key="region", placeholder="Select region")
+chromatin = st.selectbox(
+    "Chromatin accessibility (within_atac_peak)", (True, False),
+    index=None, key="chromatin", placeholder="Select True or False",
+    format_func=lambda value: "True" if value else "False",
 )
+leaf = st.selectbox("Leaf expression", EXPRESSIONS, index=None, key="leaf", placeholder="Select expression")
+t0 = st.selectbox("T0 expression", EXPRESSIONS, index=None, key="t0", placeholder="Select expression")
 
-st.info(
-    "Enter the guide RNA sequence and biological information "
-    "below to generate a predicted editing efficiency."
-)
+current_inputs = (sequence, region, chromatin, leaf, t0)
+if st.session_state.get("prediction_inputs") != current_inputs:
+    clear_result()
 
-
-guide_sequence = st.text_input(
-    "Guide RNA Sequence",
-    placeholder="Enter a 20-base sequence (A, T, G, C)",
-    max_chars=20
-)
-
-
-target_region_display = st.selectbox(
-    "Target Region",
-    [
-        "Exon",
-        "Intron",
-        "Promoter"
-    ]
-)
-
-
-within_atac_display = st.radio(
-    "Within ATAC Peak?",
-    [
-        "No",
-        "Yes"
-    ]
-)
-
-
-leaf_display = st.selectbox(
-    "Leaf Expression",
-    [
-        "Low",
-        "Medium",
-        "High"
-    ]
-)
-
-
-t0_display = st.selectbox(
-    "T0 Expression",
-    [
-        "Low",
-        "Medium",
-        "High"
-    ]
-)
-
-
-# --------------------------------------------------
-# PREDICTION
-# --------------------------------------------------
-
-if st.button(
-    "Predict Editing Efficiency",
-    type="primary"
-):
-
-    valid, message = validate_guide_sequence(
-        guide_sequence
-    )
-
-    if not valid:
-
-        st.error(message)
-
+if st.button("Predict", type="primary"):
+    clear_result()
+    try:
+        # Validate before loading the model. No default biological context.
+        build_features(sequence, region, chromatin, leaf, t0)
+    except ValueError as exc:
+        st.error(str(exc))
     else:
+        try:
+            result = predict(cached_model(), sequence, region, chromatin, leaf, t0)
+        except Exception:
+            logging.exception("Prediction failed")
+            st.error("Prediction could not be completed. Check the bundled model and pinned dependencies; see the terminal for details.")
+        else:
+            st.session_state.prediction = result
+            st.session_state.prediction_inputs = current_inputs
 
-        # Convert user-friendly labels to dataset labels
-        region_mapping = {
+if "prediction" in st.session_state:
+    result = st.session_state.prediction
+    st.metric("Model-predicted editing efficiency", f"{result:.2f}%")
+    st.caption(f"Guide: {normalise_sequence(sequence)} · Region: {region} · ATAC: {chromatin} · Leaf: {leaf} · T0: {t0}")
+    if result < 0 or result > 100:
+        st.warning("The raw prediction is outside the biological 0–100% range. It has not been clamped and should not be interpreted as a feasible efficiency.")
+    st.write("This is a model estimate, not a guarantee of experimental success.")
 
-            "Exon": "Exo",
+    st.subheader("Why did the model predict this value?")
+    st.write("SHAP shows how each input moves the model estimate above or below its average prediction for 32 training examples. Contributions are measured in percentage points.")
+    st.caption("All sequence-derived features are explained together to preserve their dependencies.")
+    if st.button("Explain prediction", key="explain_prediction"):
+        st.session_state.pop("shap_result", None)
+        st.session_state.pop("shap_error", None)
+        try:
+            with st.spinner("Calculating the ensemble explanation…"):
+                started = perf_counter()
+                engine = cached_explainer()
+                explanation, seconds = engine.explain(*current_inputs)
+                from explanations import contribution_summary, waterfall_png
+                image = waterfall_png(explanation)
+                increases, decreases = contribution_summary(explanation)
+                st.session_state.shap_result = {
+                    "image": image, "increases": increases, "decreases": decreases,
+                    "baseline": float(explanation.base_values), "seconds": seconds,
+                    "total_seconds": perf_counter() - started,
+                }
+        except Exception:
+            logging.exception("SHAP explanation failed")
+            st.session_state.shap_error = "Explanation unavailable. Your prediction is still valid as a model output. Check the SHAP dependencies and bundled training background; see the terminal for details."
+    if "shap_error" in st.session_state:
+        st.error(st.session_state.shap_error)
+    if "shap_result" in st.session_state:
+        detail = st.session_state.shap_result
+        st.image(detail["image"], width="stretch")
+        st.write("**Increasing the estimate:** " + detail["increases"])
+        st.write("**Decreasing the estimate:** " + detail["decreases"])
+        st.caption(f"Background mean: {detail['baseline']:.2f}% · Explanation calculation: {detail['seconds']:.2f}s · Total including setup and plot: {detail['total_seconds']:.2f}s")
+    st.caption("SHAP describes the combined four-model ensemble's behaviour, not proven biological effects. These grouped comparisons can combine a sequence with context not observed experimentally; they are not experimental recommendations.")
 
-            "Intron": "Int",
+st.divider()
+from comparison import render_comparison
+render_comparison(cached_model, cached_explainer)
 
-            "Promoter": "Pro"
-        }
-
-        expression_mapping = {
-
-            "Low": "low",
-
-            "Medium": "med",
-
-            "High": "high"
-        }
-
-        target_region = region_mapping[
-            target_region_display
-        ]
-
-        within_atac_peak = (
-            within_atac_display == "Yes"
-        )
-
-        leaf_expression = expression_mapping[
-            leaf_display
-        ]
-
-        t0_expression = expression_mapping[
-            t0_display
-        ]
-
-
-        # --------------------------------------------------
-        # PREPARE INPUT
-        # --------------------------------------------------
-
-        new_guide = prepare_new_guide(
-            guide_sequence,
-            target_region,
-            within_atac_peak,
-            leaf_expression,
-            t0_expression
-        )
-
-
-        # --------------------------------------------------
-        # GENERATE PREDICTION
-        # --------------------------------------------------
-
-        prediction = final_ensemble.predict(
-            new_guide
-        )[0]
-
-        # Keep prediction within percentage range
-        prediction = max(
-            0,
-            min(
-                100,
-                prediction
-            )
-        )
-
-
-        # --------------------------------------------------
-        # PREPARE SHAP INPUT
-        # --------------------------------------------------
-
-        fitted_preprocessor = (
-            final_ensemble
-            .estimators_[0]
-            .named_steps["preprocessor"]
-        )
-
-        guide_numeric = (
-            fitted_preprocessor
-            .transform(new_guide)
-        )
-
-
-        # --------------------------------------------------
-        # CALCULATE SHAP VALUES
-        # --------------------------------------------------
-
-        guide_shap_values = shap_explainer(
-            guide_numeric,
-            max_evals=200
-        )
-
-
-        # --------------------------------------------------
-        # IDENTIFY STRONGEST CONTRIBUTORS
-        # --------------------------------------------------
-
-        shap_contributions = pd.DataFrame({
-
-            "Feature":
-                shap_feature_names,
-
-            "SHAP Value":
-                guide_shap_values.values[0]
-        })
-
-        shap_contributions[
-            "Absolute Impact"
-        ] = (
-            shap_contributions[
-                "SHAP Value"
-            ].abs()
-        )
-
-        top_shap_features = (
-            shap_contributions
-            .sort_values(
-                by="Absolute Impact",
-                ascending=False
-            )
-            .head(5)
-        )
-
-
-        # --------------------------------------------------
-        # DISPLAY PREDICTION
-        # --------------------------------------------------
-
-        st.success(
-            f"Predicted Editing Efficiency: "
-            f"{prediction:.2f}%"
-        )
-
-        st.caption(
-            "This prediction is intended as a "
-            "decision-support estimate for tomato "
-            "CRISPR-Cas9 guide RNAs."
-        )
-
-
-        # --------------------------------------------------
-        # DISPLAY SHAP EXPLANATION
-        # --------------------------------------------------
-
-        st.subheader(
-            "Why did the model make this prediction?"
-        )
-
-        st.write(
-            "The features below had the strongest influence "
-            "on this guide's predicted editing efficiency:"
-        )
-
-        for _, row in top_shap_features.iterrows():
-
-            feature_name = (
-                row["Feature"]
-                .replace(
-                    "categorical__",
-                    ""
-                )
-                .replace(
-                    "boolean__",
-                    ""
-                )
-                .replace(
-                    "numerical__",
-                    ""
-                )
-                .replace(
-                    "trinucleotide__",
-                    ""
-                )
-                .replace(
-                    "trinuc_",
-                    ""
-                )
-            )
-
-            if row["SHAP Value"] > 0:
-
-                direction = "increased"
-
-            else:
-
-                direction = "decreased"
-
-            st.write(
-                f"• **{feature_name}** — "
-                f"{direction} the predicted "
-                f"editing efficiency"
-            )
-
-
-        st.caption(
-            "These explanations describe how the model made "
-            "its prediction and do not establish biological causation."
-        )
+st.divider()
+st.caption(
+    "Research proof of concept for tomato CRISPR-Cas9. Predictions may be inaccurate and require experimental validation. "
+    "Reference examples check software consistency; they do not establish independent predictive performance."
+)

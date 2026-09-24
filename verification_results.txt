@@ -1,0 +1,57 @@
+CRISPR application: multiple-guide comparison verification — 2026-09-22
+
+Python: 3.12.14
+streamlit==1.55.0
+scikit-learn==1.6.1
+catboost==1.2.10
+pandas==2.2.3
+numpy==2.1.3
+scipy==1.16.3
+biopython==1.88
+joblib==1.6.0
+Model SHA256: 08e6044b389530827b4b2a7bbbac47d7f3ef9d2dfb659414cbf62cf598a904c8
+PASS: model loads; four equally weighted fitted pipelines; 72 features.
+PASS: example 1; all feature values/order/dtypes match; prediction=35.783000375769149; abs_error=0.000e+00
+PASS: example 2; all feature values/order/dtypes match; prediction=32.540298691900560; abs_error=0.000e+00
+PASS: example 3; all feature values/order/dtypes match; prediction=39.626385891168965; abs_error=0.000e+00
+PASS: example 4; all feature values/order/dtypes match; prediction=44.018846170458914; abs_error=0.000e+00
+PASS: example 5; all feature values/order/dtypes match; prediction=25.606259519632605; abs_error=0.000e+00
+PASS: valid/lowercase/whitespace, invalid characters/lengths, missing/invalid context, True/False and overlapping homopolymers.
+PASS: out-of-range predictions preserved; non-finite predictions rejected.
+PASS: Streamlit renders; five example predictions, manual lowercase input, empty/invalid submissions and stale-result clearing work.
+PASS: real local Streamlit server starts and responds successfully.
+ALL CHECKS PASSED. Maximum reference prediction absolute error: 0.000e+00
+Reference checks verify implementation consistency, not independent predictive performance.
+
+SHAP version: 0.49.1
+PASS: deterministic 32-row training selection, disjoint test/reference cases, input-only background.
+PASS: example 1: prediction=35.783000375769, SHAP reconstruction error=7.105e-15, calculation=4.805s
+PASS: example 2: prediction=32.540298691901, SHAP reconstruction error=7.105e-15, calculation=0.889s
+PASS: example 3: prediction=39.626385891169, SHAP reconstruction error=4.263e-14, calculation=0.591s
+PASS: example 4: prediction=44.018846170459, SHAP reconstruction error=2.132e-14, calculation=0.829s
+PASS: example 5: prediction=25.606259519633, SHAP reconstruction error=7.105e-15, calculation=0.571s
+Background ensemble mean: 44.292527209043%
+PASS: independent trinucleotide masking can violate sequence constraints; all 32 grouped coalitions preserve complete sequence blocks and 18 windows.
+PASS: SHAP agrees with independently calculated five-group Shapley values over all 32 coalitions.
+Permutation benchmark (110 masks): 4.585s; production uses 32-coalition ExactExplainer, removing sampling error.
+PASS: invalid input cannot trigger SHAP.
+PASS: waterfall is a valid PNG and renders in Streamlit; lazy execution, session reuse and sequence/context invalidation; first UI request=1.522s.
+PASS: simulated SHAP failure leaves the prediction visible and shows a clear error.
+PASS: saved model artifact unchanged.
+ALL SHAP CHECKS PASSED. Cold calculation=4.805s; warm range=0.571–0.889s; max reconstruction error=4.263e-14.
+
+PASS: two-guide reference comparison matches individual predictions; differing contexts flagged; SHAP not calculated automatically.
+PASS: selected-guide SHAP receives the correct five inputs; switching selection clears the old explanation; ordinary reruns reuse it.
+PASS: sequence/context edits clear results; lowercase/whitespace accepted; missing context blocks the entire comparison.
+Three-guide demonstration:
+  Guide A: TAACATCAATATGTATCACA -> 35.78300038%
+  Guide B: AATGATAAAGTGAAGTTACG -> 32.54029869%
+  Guide C: TACCACTGATACCTCTTCTG -> 39.62638589%
+PASS: three-guide comparison matches individual predictions; Guide C SHAP receives Guide C inputs.
+PASS: invalid included Guide C blocks comparison; switching to two guides excludes C explicitly and restores valid comparison.
+PASS: identical-context comparisons are labeled correctly.
+PASS: explanation failure preserves comparison results; comparison changes do not clear the single-guide prediction.
+ALL COMPARISON CHECKS PASSED.
+
+PASS: predictor.py, explanations.py, final_ensemble.joblib, model_reference.json, shap_background.json, requirements.txt and both existing test scripts are byte-identical to the prior release.
+Intentional explanation failures were tested; expected diagnostic tracebacks are omitted here. No deployment or model training occurred.
