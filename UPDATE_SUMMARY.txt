@@ -1,0 +1,15 @@
+Updated from the supplied CRISPR_UAT_App_Improved.zip.
+- Two tabs: Predict / UAT and Compare Guides.
+- UAT examples populate the same five editable manual fields; shared prediction and SHAP flow.
+- Short input help; low-complexity homopolymer input caution without blocking prediction.
+- Fixed Final Model Performance table from all 84 original test rows, evaluated offline.
+  MAE 19.769199163539373; RMSE 25.544953173940023; R2 0.2343497173094321.
+- Supplied ensemble tables contained CV metrics, so the test scores were recomputed
+  using the saved model, original split and unchanged predictor.predict function.
+- Split verified against all four fitted scalers. Held out from final fitting only:
+  earlier tuning/CV used the full dataset, so this is not untouched external validation.
+- All four verification scripts passed, including lightweight input and metrics-table checks.
+- Model, 72-feature pipeline, SHAP calculation/background, comparison.py, UAT CSV,
+  reference JSON and requirements unchanged byte-for-byte.
+- No outcomes or benchmark answer keys included; no retraining, PAM, deployment or GitHub changes.
+Model SHA256: 08e6044b389530827b4b2a7bbbac47d7f3ef9d2dfb659414cbf62cf598a904c8

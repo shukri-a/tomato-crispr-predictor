@@ -1,0 +1,14 @@
+{
+  "metrics": {
+    "MAE": 19.769199163539373,
+    "RMSE": 25.544953173940023,
+    "R2": 0.2343497173094321
+  },
+  "test_rows": 84,
+  "training_rows": 336,
+  "split": "train_test_split(test_size=0.20, random_state=42); original workbook row order",
+  "source_sha256": "f057355edf663375883bfd001988f97b00755496c218056767ace919dd53969c",
+  "model_sha256": "08e6044b389530827b4b2a7bbbac47d7f3ef9d2dfb659414cbf62cf598a904c8",
+  "derivation": "Recomputed offline from the unchanged saved ensemble via predictor.predict; not copied from cross-validation scores.",
+  "limitation": "Held out from final fitting; earlier tuning/cross-validation used the full dataset. Not untouched external or unseen-gene validation."
+}
